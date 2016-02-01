@@ -5,6 +5,8 @@ from api.v2.views.base import BaseRequestViewSet
 
 from django.db.models import Q
 
+from rest_framework import exceptions as rest_exceptions
+
 from core import exceptions as core_exceptions
 from core.email import send_denied_resource_email
 from core.models import MachineRequest, IdentityMembership, AtmosphereUser,\
@@ -31,11 +33,11 @@ class MachineRequestViewSet(BaseRequestViewSet):
             Q(instance_id=serializer.validated_data['instance'].id) &\
             ~Q(status__name="failed") &\
             ~Q(status__name="rejected") &\
-            ~Q(status__name="failed") &\
             ~Q(status__name="closed")))
 
         if len(q) > 0:
-            raise core_exceptions.RequestLimitExceeded("Only one open request per instance is allowed.")
+            message = "Only one active request is allowed per provider."
+            raise rest_exceptions.MethodNotAllowed('create', detail=message)
 
         # NOTE: An identity could possible have multiple memberships
         # It may be better to directly take membership rather than an identity
@@ -44,9 +46,9 @@ class MachineRequestViewSet(BaseRequestViewSet):
         new_owner=self.request.user
         parent_machine = serializer.validated_data['instance'].provider_machine
         status, _ = StatusType.objects.get_or_create(name="pending")
-        new_machine_provider = Provider.objects.filter(id=new_provider_id)
-        new_machine_owner = AtmosphereUser.objects.filter(id=new_owner_id)
-        parent_machine = ProviderMachine.objects.filter(id=parent_machine_id)
+        new_machine_provider = Provider.objects.filter(id=new_provider.id)
+        new_machine_owner = AtmosphereUser.objects.filter(id=new_owner.id)
+        parent_machine = ProviderMachine.objects.filter(id=parent_machine.id)
 
         if new_machine_provider.count(): 
             new_machine_provider = new_machine_provider[0]
@@ -77,7 +79,7 @@ class MachineRequestViewSet(BaseRequestViewSet):
         except (core_exceptions.ProviderLimitExceeded,
                 core_exceptions.RequestLimitExceeded):
             message = "Only one active request is allowed per provider."
-            raise exceptions.MethodNotAllowed('create', detail=message)
+            raise rest_exceptions.MethodNotAllowed('create', detail=message)
         except core_exceptions.InvalidMembership:
             message = (
                 "The user '%s' is not a valid member."
